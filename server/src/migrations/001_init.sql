@@ -71,3 +71,15 @@ CREATE TABLE payroll_adjustments (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX payroll_adjustments_period_idx ON payroll_adjustments (period, staff_id);
+
+CREATE TABLE audit_log (
+  id          bigserial PRIMARY KEY,
+  user_id     uuid,
+  action      text        NOT NULL,
+  entity      text,
+  entity_id   text,
+  meta        jsonb,
+  ip          text,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX audit_log_created_at_idx ON audit_log (created_at DESC);
