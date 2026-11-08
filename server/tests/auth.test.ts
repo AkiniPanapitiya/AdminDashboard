@@ -126,3 +126,53 @@ describe('authentication', () => {
     expect(JSON.stringify(rows)).not.toContain(OWNER_PASSWORD);
   });
 });
+
+describe('request hardening', () => {
+  it('blocks state-changing requests from other origins (CSRF)', async () => {
+    const agent = await loggedInAgent(ctx.app);
+    const res = await request(ctx.app)
+      .post('/api/staff')
+      .set('Origin', 'https://evil.example')
+      .send({ fullName: 'X' });
+    expect(res.status).toBe(403);
+    expect((await agent.get('/api/staff')).body.staff).toHaveLength(0);
+  });
+
+  it('only accepts JSON bodies on writes (no form posts)', async () => {
+    const res = await request(ctx.app)
+      .post('/api/auth/login')
+      .set('Origin', CLIENT_ORIGIN)
+      .type('form')
+      .send({ email: OWNER_EMAIL, password: OWNER_PASSWORD });
+    expect(res.status).toBe(403);
+  });
+
+  it('sends security headers and never caches API responses', async () => {
+    const res = await request(ctx.app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.headers['x-powered-by']).toBeUndefined();
+    expect(res.headers['content-security-policy']).toContain("default-src 'self'");
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  it('returns JSON 400 for malformed JSON and 413 for oversized bodies', async () => {
+    const bad = await request(ctx.app)
+      .post('/api/auth/login')
+      .set('Origin', CLIENT_ORIGIN)
+      .set('Content-Type', 'application/json')
+      .send('{"email": ');
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe('bad_json');
+
+    const huge = await login({ email: OWNER_EMAIL, password: 'x'.repeat(60_000) });
+    expect(huge.status).toBe(413);
+  });
+
+  it('does not leak internals on unknown routes', async () => {
+    const agent = await loggedInAgent(ctx.app);
+    const res = await agent.get('/api/does-not-exist');
+    expect(res.status).toBe(404);
+    expect(JSON.stringify(res.body)).not.toMatch(/express|stack|node_modules/i);
+  });
+});
