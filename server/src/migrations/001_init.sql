@@ -42,3 +42,20 @@ CREATE TABLE job_types (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX job_types_name_lower_key ON job_types (lower(btrim(name)));
+
+-- Each entry snapshots the job name and rate at the time of work, so changing a rate
+-- later never rewrites history or past salaries.
+CREATE TABLE production_entries (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id       uuid        NOT NULL REFERENCES staff (id) ON DELETE RESTRICT,
+  job_type_id    uuid        REFERENCES job_types (id) ON DELETE SET NULL,
+  job_type_name  text        NOT NULL,
+  quantity       integer     NOT NULL CHECK (quantity > 0 AND quantity <= 100000),
+  rate_cents     bigint      NOT NULL CHECK (rate_cents >= 0),
+  work_date      date        NOT NULL,
+  note           text        CHECK (note IS NULL OR length(note) <= 500),
+  created_by     uuid        REFERENCES users (id) ON DELETE SET NULL,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX production_entries_staff_date_idx ON production_entries (staff_id, work_date);
+CREATE INDEX production_entries_date_idx ON production_entries (work_date);
