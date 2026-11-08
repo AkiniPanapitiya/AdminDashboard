@@ -59,3 +59,15 @@ CREATE TABLE production_entries (
 );
 CREATE INDEX production_entries_staff_date_idx ON production_entries (staff_id, work_date);
 CREATE INDEX production_entries_date_idx ON production_entries (work_date);
+
+CREATE TABLE payroll_adjustments (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id      uuid        NOT NULL REFERENCES staff (id) ON DELETE RESTRICT,
+  period        date        NOT NULL CHECK (extract(day FROM period) = 1),
+  kind          text        NOT NULL CHECK (kind IN ('bonus', 'advance', 'deduction')),
+  amount_cents  bigint      NOT NULL CHECK (amount_cents > 0 AND amount_cents <= 1000000000),
+  note          text        CHECK (note IS NULL OR length(note) <= 500),
+  created_by    uuid        REFERENCES users (id) ON DELETE SET NULL,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX payroll_adjustments_period_idx ON payroll_adjustments (period, staff_id);
