@@ -70,3 +70,42 @@ describe('passwords', () => {
     expect(await verifyPassword('not-a-hash', 'x')).toBe(false);
   });
 });
+
+describe('csv export', () => {
+  it('neutralises spreadsheet formulas and escapes quotes', () => {
+    expect(csvCell('=HYPERLINK("http://evil")')).toBe(`"'=HYPERLINK(""http://evil"")"`);
+    expect(csvCell('+1')).toBe("'+1");
+    expect(csvCell('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(csvCell('Nimal, Perera')).toBe('"Nimal, Perera"');
+    expect(csvCell(42)).toBe('42');
+  });
+
+  it('writes totals row with 2-decimal amounts', () => {
+    const csv = payrollToCsv({
+      month: '2026-11',
+      lines: [
+        {
+          staffId: 'x',
+          fullName: 'Kamal',
+          active: true,
+          pieces: 10,
+          grossCents: 150_000,
+          bonusCents: 0,
+          advanceCents: 50_000,
+          deductionCents: 0,
+          netCents: 100_000,
+        },
+      ],
+      totals: {
+        pieces: 10,
+        grossCents: 150_000,
+        bonusCents: 0,
+        advanceCents: 50_000,
+        deductionCents: 0,
+        netCents: 100_000,
+      },
+    });
+    expect(csv.split('\r\n')[1]).toBe('Kamal,10,1500.00,0.00,500.00,0.00,1000.00');
+    expect(csv.split('\r\n')[2]).toBe('TOTAL,10,1500.00,0.00,500.00,0.00,1000.00');
+  });
+});
