@@ -53,3 +53,20 @@ describe('dates', () => {
     expect(todayIn('UTC', instant)).toBe('2026-11-08');
   });
 });
+
+describe('passwords', () => {
+  it('enforces length and character mix', () => {
+    expect(passwordSchema.safeParse('short1A').success).toBe(false);
+    expect(passwordSchema.safeParse('alllowercase123456').success).toBe(false);
+    expect(passwordSchema.safeParse('NoDigitsInHereAtAll').success).toBe(false);
+    expect(passwordSchema.safeParse('Valid-Passw0rd-123').success).toBe(true);
+  });
+
+  it('hashes with argon2id and verifies', async () => {
+    const hash = await hashPassword('Valid-Passw0rd-123');
+    expect(hash).toMatch(/^\$argon2id\$/);
+    expect(await verifyPassword(hash, 'Valid-Passw0rd-123')).toBe(true);
+    expect(await verifyPassword(hash, 'wrong')).toBe(false);
+    expect(await verifyPassword('not-a-hash', 'x')).toBe(false);
+  });
+});
