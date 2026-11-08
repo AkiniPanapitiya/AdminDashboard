@@ -109,3 +109,16 @@ describe('csv export', () => {
     expect(csv.split('\r\n')[2]).toBe('TOTAL,10,1500.00,0.00,500.00,0.00,1000.00');
   });
 });
+
+describe('config', () => {
+  it('fails fast with a readable message when required settings are missing', () => {
+    expect(() => loadConfig({})).toThrow(/DATABASE_URL/);
+  });
+
+  it('forces secure cookies in production', () => {
+    expect(() =>
+      loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgres://x', COOKIE_SECURE: 'false' }),
+    ).toThrow(/COOKIE_SECURE/);
+    expect(loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgres://x' }).COOKIE_SECURE).toBe(true);
+  });
+});
