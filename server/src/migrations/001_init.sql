@@ -31,3 +31,14 @@ CREATE TABLE staff (
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- A "job type" is something staff are paid per piece for (e.g. "DTF print A4").
+CREATE TABLE job_types (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        text        NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 80),
+  rate_cents  bigint      NOT NULL CHECK (rate_cents >= 0 AND rate_cents <= 100000000),
+  active      boolean     NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX job_types_name_lower_key ON job_types (lower(btrim(name)));
