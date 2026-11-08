@@ -22,3 +22,12 @@ CREATE TABLE sessions (
   expires_at  timestamptz NOT NULL
 );
 CREATE INDEX sessions_expires_at_idx ON sessions (expires_at);
+
+CREATE TABLE staff (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  full_name   text        NOT NULL CHECK (length(btrim(full_name)) BETWEEN 1 AND 120),
+  phone       text        CHECK (phone IS NULL OR length(phone) <= 30),
+  active      boolean     NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
