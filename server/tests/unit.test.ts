@@ -34,3 +34,22 @@ describe('money', () => {
     expect(() => lineTotalCents(Number.MAX_SAFE_INTEGER, 2)).toThrow(RangeError);
   });
 });
+
+describe('dates', () => {
+  it('builds month ranges, including December rollover', () => {
+    expect(monthRange('2026-11')).toEqual({ start: '2026-11-01', end: '2026-12-01' });
+    expect(monthRange('2026-12')).toEqual({ start: '2026-12-01', end: '2027-01-01' });
+  });
+
+  it('rejects bad month strings', () => {
+    for (const bad of ['2026-13', '2026-00', '26-01', '2026/01', '', '2026-1']) {
+      expect(() => monthRange(bad)).toThrow();
+    }
+  });
+
+  it('uses the business time zone to decide what today is', () => {
+    const instant = new Date('2026-11-08T20:00:00Z'); // already 9 Nov 01:30 in Colombo
+    expect(todayIn('Asia/Colombo', instant)).toBe('2026-11-09');
+    expect(todayIn('UTC', instant)).toBe('2026-11-08');
+  });
+});
