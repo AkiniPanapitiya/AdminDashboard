@@ -100,3 +100,36 @@ export async function getPayroll(db: Queryable, month: string, staffId?: string)
     },
   };
 }
+
+/** Escapes a CSV cell and neutralises spreadsheet formulas (CSV injection). */
+export function csvCell(value: string | number): string {
+  let text = String(value);
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+const cents = (value: number) => (value / 100).toFixed(2);
+
+export function payrollToCsv(summary: PayrollSummary): string {
+  const header = ['Staff', 'Pieces', 'Earnings', 'Bonus', 'Advances', 'Deductions', 'Net pay'];
+  const rows = summary.lines.map((line) => [
+    line.fullName,
+    line.pieces,
+    cents(line.grossCents),
+    cents(line.bonusCents),
+    cents(line.advanceCents),
+    cents(line.deductionCents),
+    cents(line.netCents),
+  ]);
+  const t = summary.totals;
+  rows.push([
+    'TOTAL',
+    t.pieces,
+    cents(t.grossCents),
+    cents(t.bonusCents),
+    cents(t.advanceCents),
+    cents(t.deductionCents),
+    cents(t.netCents),
+  ]);
+  return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+}
