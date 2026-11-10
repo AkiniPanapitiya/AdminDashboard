@@ -145,3 +145,135 @@ describe('production entries', () => {
     expect(rows[0].meta).toMatchObject({ quantity: 2, rateCents: 15_000 });
   });
 });
+
+describe('payroll', () => {
+  it('calculates earnings, bonuses, advances and deductions per month', async () => {
+    const nimal = await makeStaff('Nimal');
+    const kamal = await makeStaff('Kamal');
+    const a4 = await makeJob('DTF print A4', 15_000);
+    const a3 = await makeJob('DTF print A3', 25_050);
+
+    const add = (staffId: string, jobTypeId: string, quantity: number, workDate: string) =>
+      agent.post('/api/production', { staffId, jobTypeId, quantity, workDate });
+    await add(nimal.id, a4.id, 10, '2026-03-02');
+    await add(nimal.id, a3.id, 3, '2026-03-20'); // 3 x 250.50 = 751.50
+    await add(nimal.id, a4.id, 99, '2026-02-28'); // previous month: excluded
+    await add(nimal.id, a4.id, 99, '2026-04-01'); // next month: excluded
+    await add(kamal.id, a4.id, 4, '2026-03-05');
+
+    const adj = (staffId: string, kind: string, amountCents: number) =>
+      agent.post('/api/payroll/adjustments', { staffId, month: '2026-03', kind, amountCents });
+    expect((await adj(nimal.id, 'bonus', 50_000)).status).toBe(201);
+    expect((await adj(nimal.id, 'advance', 100_000)).status).toBe(201);
+    expect((await adj(nimal.id, 'deduction', 2_500)).status).toBe(201);
+    // adjustment in another month must not leak into November
+    await agent.post('/api/payroll/adjustments', {
+      staffId: nimal.id,
+      month: '2026-02',
+      kind: 'advance',
+      amountCents: 999_999,
+    });
+
+    const res = await agent.get('/api/payroll?month=2026-03');
+    expect(res.status).toBe(200);
+    const lines = res.body.payroll.lines;
+    const n = lines.find((l: { fullName: string }) => l.fullName === 'Nimal');
+    expect(n).toMatchObject({
+      pieces: 13,
+      grossCents: 150_000 + 75_150,
+      bonusCents: 50_000,
+      advanceCents: 100_000,
+      deductionCents: 2_500,
+      netCents: 150_000 + 75_150 + 50_000 - 100_000 - 2_500,
+    });
+    const k = lines.find((l: { fullName: string }) => l.fullName === 'Kamal');
+    expect(k).toMatchObject({ pieces: 4, grossCents: 60_000, netCents: 60_000 });
+    expect(res.body.payroll.totals.netCents).toBe(n.netCents + k.netCents);
+  });
+
+  it('shows a per-job breakdown and the adjustments for one person', async () => {
+    const nimal = await makeStaff('Nimal');
+    const job = await makeJob('DTF print A4', 15_000);
+    await agent.post('/api/production', {
+      staffId: nimal.id,
+      jobTypeId: job.id,
+      quantity: 5,
+      workDate: '2026-03-02',
+    });
+    await agent.patch(`/api/job-types/${job.id}`, { rateCents: 20_000 });
+    await agent.post('/api/production', {
+      staffId: nimal.id,
+      jobTypeId: job.id,
+      quantity: 2,
+      workDate: '2026-03-03',
+    });
+    await agent.post('/api/payroll/adjustments', {
+      staffId: nimal.id,
+      month: '2026-03',
+      kind: 'bonus',
+      amountCents: 1_000,
+      note: 'Rush order',
+    });
+
+    const res = await agent.get(`/api/payroll/staff/${nimal.id}?month=2026-03`);
+    expect(res.status).toBe(200);
+    expect(res.body.breakdown).toEqual([
+      { jobTypeName: 'DTF print A4', rateCents: 15_000, pieces: 5, totalCents: 75_000 },
+      { jobTypeName: 'DTF print A4', rateCents: 20_000, pieces: 2, totalCents: 40_000 },
+    ]);
+    expect(res.body.adjustments).toHaveLength(1);
+    expect(res.body.summary.netCents).toBe(116_000);
+    expect((await agent.get(`/api/payroll/staff/${uuid}?month=2026-03`)).status).toBe(404);
+  });
+
+  it('validates month and adjustment input', async () => {
+    const staff = await makeStaff();
+    expect((await agent.get('/api/payroll')).status).toBe(400);
+    expect((await agent.get('/api/payroll?month=2026-13')).status).toBe(400);
+    const base = { staffId: staff.id, month: '2026-03', kind: 'bonus', amountCents: 100 };
+    for (const bad of [
+      { amountCents: 0 },
+      { amountCents: -100 },
+      { amountCents: 1.5 },
+      { kind: 'gift' },
+      { month: '2026-1' },
+    ]) {
+      expect((await agent.post('/api/payroll/adjustments', { ...base, ...bad })).status).toBe(400);
+    }
+    expect((await agent.post('/api/payroll/adjustments', { ...base, staffId: uuid })).status).toBe(404);
+  });
+
+  it('deletes adjustments and records it in the audit log', async () => {
+    const staff = await makeStaff();
+    const created = await agent.post('/api/payroll/adjustments', {
+      staffId: staff.id,
+      month: '2026-03',
+      kind: 'advance',
+      amountCents: 5_000,
+    });
+    const id = created.body.adjustment.id;
+    expect((await agent.delete(`/api/payroll/adjustments/${id}`)).status).toBe(204);
+    expect((await agent.delete(`/api/payroll/adjustments/${id}`)).status).toBe(404);
+    const { rows } = await ctx.pool.query(
+      "SELECT 1 FROM audit_log WHERE action = 'payroll_adjustment.delete'",
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  it('exports a CSV that cannot trigger spreadsheet formulas', async () => {
+    const evil = await makeStaff('=cmd|calc!A1');
+    const job = await makeJob('DTF print A4', 15_000);
+    await agent.post('/api/production', {
+      staffId: evil.id,
+      jobTypeId: job.id,
+      quantity: 2,
+      workDate: '2026-03-02',
+    });
+    const res = await agent.get('/api/payroll/export.csv?month=2026-03');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/csv/);
+    expect(res.headers['content-disposition']).toContain('payroll-2026-03.csv');
+    expect(res.text).toContain("'=cmd|calc!A1");
+    expect(res.text).not.toMatch(/^=cmd/m);
+  });
+});
