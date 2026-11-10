@@ -72,3 +72,76 @@ describe('job types', () => {
     expect(dup.status).toBe(409);
   });
 });
+
+describe('production entries', () => {
+  it('snapshots the rate so later rate changes do not rewrite history', async () => {
+    const staff = await makeStaff();
+    const job = await makeJob('DTF print A4', 15_000);
+
+    const entry = await agent.post('/api/production', {
+      staffId: staff.id,
+      jobTypeId: job.id,
+      quantity: 10,
+      workDate: '2026-03-03',
+    });
+    expect(entry.status).toBe(201);
+    expect(entry.body.entry).toMatchObject({ rateCents: 15_000, lineTotalCents: 150_000 });
+
+    await agent.patch(`/api/job-types/${job.id}`, { rateCents: 20_000 });
+    const list = await agent.get(`/api/production?staffId=${staff.id}`);
+    expect(list.body.entries[0].rateCents).toBe(15_000);
+
+    const after = await agent.post('/api/production', {
+      staffId: staff.id,
+      jobTypeId: job.id,
+      quantity: 1,
+      workDate: '2026-03-04',
+    });
+    expect(after.body.entry.rateCents).toBe(20_000);
+  });
+
+  it('rejects future dates, bad quantities, inactive staff or job types and unknown ids', async () => {
+    const staff = await makeStaff();
+    const job = await makeJob();
+    const base = { staffId: staff.id, jobTypeId: job.id, quantity: 1, workDate: '2026-03-03' };
+
+    expect((await agent.post('/api/production', { ...base, workDate: '2999-01-01' })).status).toBe(400);
+    expect((await agent.post('/api/production', { ...base, workDate: '2026-02-30' })).status).toBe(400);
+    for (const quantity of [0, -5, 1.5, 100_001]) {
+      expect((await agent.post('/api/production', { ...base, quantity })).status, String(quantity)).toBe(400);
+    }
+    expect((await agent.post('/api/production', { ...base, staffId: uuid })).status).toBe(404);
+    expect((await agent.post('/api/production', { ...base, jobTypeId: uuid })).status).toBe(404);
+
+    await agent.patch(`/api/job-types/${job.id}`, { active: false });
+    expect((await agent.post('/api/production', base)).status).toBe(409);
+    await agent.patch(`/api/job-types/${job.id}`, { active: true });
+    await agent.patch(`/api/staff/${staff.id}`, { active: false });
+    expect((await agent.post('/api/production', base)).status).toBe(409);
+  });
+
+  it('filters by staff and date range, paginates, and deletes with an audit trail', async () => {
+    const a = await makeStaff('Amal');
+    const b = await makeStaff('Bimal');
+    const job = await makeJob();
+    for (const [staffId, workDate] of [
+      [a.id, '2026-03-01'],
+      [a.id, '2026-03-05'],
+      [b.id, '2026-03-05'],
+    ] as const) {
+      await agent.post('/api/production', { staffId, jobTypeId: job.id, quantity: 2, workDate });
+    }
+    expect((await agent.get(`/api/production?staffId=${a.id}`)).body.entries).toHaveLength(2);
+    expect((await agent.get('/api/production?from=2026-03-04&to=2026-03-30')).body.entries).toHaveLength(2);
+    expect((await agent.get('/api/production?from=2026-03-30&to=2026-03-01')).status).toBe(400);
+    expect((await agent.get('/api/production?limit=1')).body.entries).toHaveLength(1);
+    expect((await agent.get('/api/production?limit=9999')).status).toBe(400);
+
+    const first = (await agent.get('/api/production')).body.entries[0];
+    expect((await agent.delete(`/api/production/${first.id}`)).status).toBe(204);
+    expect((await agent.delete(`/api/production/${first.id}`)).status).toBe(404);
+    const { rows } = await ctx.pool.query("SELECT meta FROM audit_log WHERE action = 'production.delete'");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].meta).toMatchObject({ quantity: 2, rateCents: 15_000 });
+  });
+});
