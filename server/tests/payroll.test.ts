@@ -57,3 +57,18 @@ describe('staff', () => {
     expect((await agent.get('/api/staff')).body.staff).toHaveLength(2);
   });
 });
+
+describe('job types', () => {
+  it('rejects negative, fractional and absurd rates', async () => {
+    for (const rateCents of [-1, 10.5, 1e12, '100']) {
+      const res = await agent.post('/api/job-types', { name: 'X', rateCents });
+      expect(res.status, String(rateCents)).toBe(400);
+    }
+  });
+
+  it('refuses duplicate names (case-insensitive)', async () => {
+    await makeJob('DTF print A4');
+    const dup = await agent.post('/api/job-types', { name: 'dtf PRINT a4', rateCents: 100 });
+    expect(dup.status).toBe(409);
+  });
+});
