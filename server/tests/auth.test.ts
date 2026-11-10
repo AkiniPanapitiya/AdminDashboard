@@ -176,3 +176,23 @@ describe('request hardening', () => {
     expect(JSON.stringify(res.body)).not.toMatch(/express|stack|node_modules/i);
   });
 });
+
+describe('rate limiting', () => {
+  it('throttles repeated login attempts when enabled', async () => {
+    const limited = createContext({ RATE_LIMIT_ENABLED: 'true' });
+    try {
+      let last = 0;
+      for (let i = 0; i < 25; i += 1) {
+        const res = await request(limited.app)
+          .post('/api/auth/login')
+          .set('Origin', CLIENT_ORIGIN)
+          .send({ email: 'nobody@inka.test', password: 'whatever-123' });
+        last = res.status;
+        if (last === 429) break;
+      }
+      expect(last).toBe(429);
+    } finally {
+      await limited.pool.end();
+    }
+  });
+});
