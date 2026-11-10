@@ -57,3 +57,65 @@ export async function api<T>(path: string, options: { method?: string; body?: Js
   }
   return payload as T;
 }
+
+// ---- API shapes ----
+
+export interface User {
+  id: string;
+  email: string;
+  role: 'owner';
+}
+export interface Staff {
+  id: string;
+  fullName: string;
+  phone: string | null;
+  active: boolean;
+}
+export interface JobType {
+  id: string;
+  name: string;
+  rateCents: number;
+  active: boolean;
+}
+export interface ProductionEntry {
+  id: string;
+  staffId: string;
+  staffName: string;
+  jobTypeName: string;
+  quantity: number;
+  rateCents: number;
+  lineTotalCents: number;
+  workDate: string;
+  note: string | null;
+}
+export interface PayrollLine {
+  staffId: string;
+  fullName: string;
+  active: boolean;
+  pieces: number;
+  grossCents: number;
+  bonusCents: number;
+  advanceCents: number;
+  deductionCents: number;
+  netCents: number;
+}
+export interface PayrollSummary {
+  month: string;
+  lines: PayrollLine[];
+  totals: Omit<PayrollLine, 'staffId' | 'fullName' | 'active'>;
+}
+export interface Adjustment {
+  id: string;
+  staffId: string;
+  staffName: string;
+  month: string;
+  kind: 'bonus' | 'advance' | 'deduction';
+  amountCents: number;
+  note: string | null;
+}
+export interface StaffPayrollDetail {
+  month: string;
+  summary: PayrollLine;
+  breakdown: { jobTypeName: string; rateCents: number; pieces: number; totalCents: number }[];
+  adjustments: Adjustment[];
+}
