@@ -1,0 +1,39 @@
+# Local development database. Run:  docker compose up -d db
+# The port is bound to 127.0.0.1 only, so it is not reachable from other machines.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: inka
+      POSTGRES_PASSWORD: inka_dev_password # development only — use a strong secret in production
+      POSTGRES_DB: inka
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - inka_pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U inka -d inka']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Optional: run the whole app in a container (docker compose --profile app up --build).
+  app:
+    profiles: ['app']
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development # set to "production" only when served over HTTPS
+      DATABASE_URL: postgres://inka:inka_dev_password@db:5432/inka
+      CLIENT_ORIGIN: http://localhost:4000
+      PORT: '4000'
+    ports:
+      - '127.0.0.1:4000:4000'
+
+volumes:
+  inka_pgdata:
